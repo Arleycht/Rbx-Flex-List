@@ -268,6 +268,8 @@ local function update()
 		end
 	end
 
+	totalChildrenSpace += udim2ToAbsolute(totalPadding, totalSpace)
+
 	-- Flip XY to exploit symmetry
 
 	if not isVertical then
@@ -306,7 +308,6 @@ local function update()
 
 	if
 		not isFlex
-		or #flexObjects == 0
 		or (availableSpace - listPadding > 0 and totalRatio.X == 0)
 		or (availableSpace - listPadding < 0 and totalRatio.Y == 0)
 	then
@@ -317,31 +318,36 @@ local function update()
 		-- Subtract list padding
 		availableSpace -= listPadding
 
+		-- Apply default if everything is not flex, but the list has flex enabled
+
+		if (availableSpace > 0 and totalRatio.X == 0) or (availableSpace < 0 and totalRatio.Y == 0) then
+			for object, flexConfig in flexConfigs do
+				flexConfig.FlexMode = Enum.UIFlexMode.Fill.Name
+				flexConfig.GrowRatio = 1
+				flexConfig.ShrinkRatio = 1
+				totalRatio += Vector2.one
+				table.insert(flexObjects, object)
+			end
+		end
+
 		-- Round size deltas to nearest integer value while conserving the desired total
 		local deltas = {}
 		for _, object in flexObjects do
-			local config = flexConfigs[object]
+			local flexConfig = flexConfigs[object]
 
 			if availableSpace > 0 then
-				table.insert(deltas, availableSpace * config.GrowRatio / totalRatio.X)
+				table.insert(deltas, availableSpace * flexConfig.GrowRatio / totalRatio.X)
 			else
-				table.insert(deltas, availableSpace * config.ShrinkRatio / totalRatio.Y)
+				table.insert(deltas, availableSpace * flexConfig.ShrinkRatio / totalRatio.Y)
 			end
 		end
 		deltas = roundAllocations(deltas, availableSpace)
 
 		-- Apply size deltas
 		for i, object in flexObjects do
-			local config = flexConfigs[object]
 			local basis = getBasisSize(object)
 			local delta = deltas[i]
-
-			local x = basis.X
-			local y = basis.Y
-
-			y = UDim.new(basis.Y.Scale, basis.Y.Offset + delta)
-
-			object.Size = UDim2.new(x, y)
+			object.Size = UDim2.new(basis.X, UDim.new(basis.Y.Scale, basis.Y.Offset + delta))
 		end
 	end
 
