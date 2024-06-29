@@ -44,13 +44,31 @@ end
 
 local function importListConfiguration()
 	local layout = script.Parent:FindFirstChildWhichIsA("UIListLayout")
+
 	if layout then
+		-- Default features
 		script:SetAttribute("FillDirection", layout.FillDirection.Name)
 		script:SetAttribute("HorizontalAlignment", layout.HorizontalAlignment.Name)
 		script:SetAttribute("VerticalAlignment", layout.VerticalAlignment.Name)
 		script:SetAttribute("SortOrder", layout.SortOrder.Name)
 		script:SetAttribute("Padding", layout.Padding)
+
+		-- Beta features
+		pcall(function()
+			script:SetAttribute("VerticalFlex", layout.VerticalFlex.Name)
+			script:SetAttribute("HorizontalFlex", layout.HorizontalFlex.Name)
+		end)
+
 		layout:Destroy()
+	end
+end
+
+local function importFlexConfiguration(object: GuiObject, config)
+	local flexItemConfiguration = object:FindFirstChildWhichIsA("UIFlexItem")
+	if flexItemConfiguration then
+		config.FlexMode = flexItemConfiguration.FlexMode.Name
+		config.ItemLineAlignment = flexItemConfiguration.ItemLineAlignment.Name
+		flexItemConfiguration:Destroy()
 	end
 end
 
@@ -131,15 +149,21 @@ local function getFlexConfiguration(object: GuiObject)
 			flexConfig.ShrinkRatio = 1
 		end
 
+		importFlexConfiguration(object, flexConfig)
+
 		return flexConfig
 	end
 
-	return {
+	local config = {
 		FlexMode = Enum.UIFlexMode.None.Name,
 		GrowRatio = 0,
 		ItemLineAlignment = Enum.ItemLineAlignment.Automatic.Name,
 		ShrinkRatio = 0,
 	}
+
+	importFlexConfiguration(object, config)
+
+	return config
 end
 
 local function getBasisSize(object: GuiObject): UDim2
@@ -306,15 +330,11 @@ local function update()
 	local paddingPerChild = listConfig.Padding.Offset + (listConfig.Padding.Scale * totalSpace.Y)
 	local listPadding = paddingPerChild * (#guiObjects - 1)
 
-	if
-		not isFlex
-		or (availableSpace - listPadding > 0 and totalRatio.X == 0)
-		or (availableSpace - listPadding < 0 and totalRatio.Y == 0)
-	then
+	if not isFlex then
 		for _, object in guiObjects do
 			object.Size = getBasisSize(object)
 		end
-	elseif isFlex then
+	else
 		-- Subtract list padding
 		availableSpace -= listPadding
 
@@ -380,7 +400,18 @@ local function update()
 		size = absoluteSize.Y
 		position = UDim2.fromOffset(0, currentPosition)
 
+		local alignment = 0
+		local stretch = false
+
 		if isFlex then
+			local alignment = listConfig.HorizontalAlignment
+
+			if alignment == Enum.HorizontalAlignment.Right.Name then
+				position += UDim2.fromOffset(totalSpace.X - absoluteSize.X, 0)
+			elseif alignment == Enum.HorizontalAlignment.Center.Name then
+				position += UDim2.fromOffset((totalSpace.X - absoluteSize.X) / 2, 0)
+			end
+		elseif crossFlexAlignment ~= Enum.UIFlexAlignment.None.Name then
 			local alignment = listConfig.ItemLineAlignment
 
 			if flexConfigs[object].ItemLineAlignment ~= Enum.ItemLineAlignment.Automatic.Name then
@@ -395,14 +426,6 @@ local function update()
 				position += UDim2.fromOffset(totalSpace.X - absoluteSize.X, 0)
 			elseif alignment == Enum.ItemLineAlignment.Stretch.Name then
 				object.Size = UDim2.new(UDim.new(1, 0), object.Size.Y)
-			end
-		else
-			local alignment = listConfig.HorizontalAlignment
-
-			if alignment == Enum.HorizontalAlignment.Right.Name then
-				position += UDim2.fromOffset(totalSpace.X - absoluteSize.X, 0)
-			elseif alignment == Enum.HorizontalAlignment.Center.Name then
-				position += UDim2.fromOffset((totalSpace.X - absoluteSize.X) / 2, 0)
 			end
 		end
 
