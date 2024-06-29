@@ -131,10 +131,15 @@ local function getFlexConfiguration(object: GuiObject)
 			flexConfig.ShrinkRatio = 1
 		end
 
-		return flexConfig :: typeof(flexConfig)?
+		return flexConfig
 	end
 
-	return nil
+	return {
+		FlexMode = Enum.UIFlexMode.None.Name,
+		GrowRatio = 0,
+		ItemLineAlignment = Enum.ItemLineAlignment.Automatic.Name,
+		ShrinkRatio = 0,
+	}
 end
 
 local function getBasisSize(object: GuiObject): UDim2
@@ -222,20 +227,20 @@ local function roundAllocations(values: { number }, target: number): { number }
 	return result
 end
 
+local function flipUdim2(udim2: UDim2): UDim2
+	return UDim2.new(udim2.Y, udim2.X)
+end
+
 local function update()
-	local parent = script.Parent
+	local parent = script.Parent :: GuiObject
 	local listConfig = getListConfiguration()
 	local isVertical = (listConfig.FillDirection == Enum.FillDirection.Vertical.Name)
 	local flexAlignment = listConfig.VerticalFlex
 	local crossFlexAlignment = listConfig.HorizontalFlex
 
-	if not isVertical then
-		flexAlignment, crossFlexAlignment = crossFlexAlignment, flexAlignment
-	end
-
-	local isFlex = (flexAlignment == Enum.UIFlexAlignment.Fill.Name)
-	local totalSpace = math.round(isVertical and parent.AbsoluteSize.Y or parent.AbsoluteSize.X)
-	local totalChildrenSpace = 0
+	local totalSpace = parent.AbsoluteSize
+	local totalPadding = UDim2.new()
+	local totalChildrenSpace = Vector2.new()
 	local totalRatio = Vector2.zero
 	local guiObjects = {}
 	local flexObjects = {}
@@ -243,93 +248,104 @@ local function update()
 
 	-- Load configs and calculate sums
 
-	for _, child in parent:GetChildren() do
-		if child:IsA("GuiObject") then
-			table.insert(guiObjects, child)
+	for _, object in parent:GetChildren() do
+		if object:IsA("GuiObject") then
+			local basis = getBasisSize(object)
+			local config = getFlexConfiguration(object)
+			flexConfigs[object] = config
 
-			local basis = getBasisSize(child)
-			totalChildrenSpace += udimToAbsolute(isVertical and basis.Y or basis.X, totalSpace)
-
-			local config = getFlexConfiguration(child)
-
-			if config then
+			if config.FlexMode ~= Enum.UIFlexMode.None.Name and (config.GrowRatio ~= 0 or config.ShrinkRatio ~= 0) then
 				totalRatio += Vector2.new(config.GrowRatio, config.ShrinkRatio)
-				flexConfigs[child] = config
-				table.insert(flexObjects, child)
+				table.insert(flexObjects, object)
 			end
-		elseif child:IsA("UIPadding") then
-			if isVertical then
-				totalChildrenSpace += udimToAbsolute(child.PaddingTop + child.PaddingBottom, totalSpace)
-			else
-				totalChildrenSpace += udimToAbsolute(child.PaddingLeft + child.PaddingRight, totalSpace)
-			end
+
+			totalChildrenSpace += udim2ToAbsolute(basis, totalSpace)
+
+			object.Position = object.Position
+			object.Size = basis
+			table.insert(guiObjects, object)
+		elseif object:IsA("UIPadding") then
+			totalPadding += UDim2.new(
+				object.PaddingLeft + object.PaddingRight,
+				object.PaddingTop + object.PaddingBottom
+			)
+		end
+	end
+
+	-- Flip XY to exploit symmetry
+
+	if not isVertical then
+		flexAlignment, crossFlexAlignment = crossFlexAlignment, flexAlignment
+
+		totalSpace = Vector2.new(totalSpace.Y, totalSpace.X)
+		totalPadding = flipUdim2(totalPadding)
+		totalChildrenSpace = Vector2.new(totalChildrenSpace.Y, totalChildrenSpace.X)
+
+		for _, object in guiObjects do
+			object.Position = flipUdim2(object.Position)
+			object.Size = flipUdim2(object.Size)
 		end
 	end
 
 	-- Apply list sort order
 
 	local sortComparator = function(a: GuiObject, b: GuiObject)
-		return a.LayoutOrder < b.LayoutOrder
-	end
-
-	if listConfig.SortOrder == Enum.SortOrder.LayoutOrder.Name then
-		local comparator = function(a: GuiObject, b: GuiObject)
+		if listConfig.SortOrder == Enum.SortOrder.Name.Name then
 			return a.Name < b.Name
+		else
+			return a.LayoutOrder < b.LayoutOrder
 		end
 	end
 
 	guiObjects = mergeSort(guiObjects, sortComparator)
 	flexObjects = mergeSort(flexObjects, sortComparator)
 
-	local availableSpace = totalSpace - totalChildrenSpace
-	local paddingPerChild = listConfig.Padding.Offset + (listConfig.Padding.Scale * totalSpace)
-	local listPadding = paddingPerChild * (#guiObjects - 1)
-
 	-- Flex
 
-	if isFlex then
+	local isFlex = (flexAlignment == Enum.UIFlexAlignment.Fill.Name)
+
+	local availableSpace = totalSpace.Y - totalChildrenSpace.Y
+	local paddingPerChild = listConfig.Padding.Offset + (listConfig.Padding.Scale * totalSpace.Y)
+	local listPadding = paddingPerChild * (#guiObjects - 1)
+
+	if
+		not isFlex
+		or #flexObjects == 0
+		or (availableSpace - listPadding > 0 and totalRatio.X == 0)
+		or (availableSpace - listPadding < 0 and totalRatio.Y == 0)
+	then
+		for _, object in guiObjects do
+			object.Size = getBasisSize(object)
+		end
+	elseif isFlex then
 		-- Subtract list padding
 		availableSpace -= listPadding
 
-		if (availableSpace > 0 and totalRatio.X == 0) or (availableSpace < 0 and totalRatio.Y == 0) then
-			isFlex = false
-		else
-			-- Round size deltas to nearest integer value while conserving the desired total
-			local deltas = {}
-			for _, object in flexObjects do
-				local config = flexConfigs[object]
+		-- Round size deltas to nearest integer value while conserving the desired total
+		local deltas = {}
+		for _, object in flexObjects do
+			local config = flexConfigs[object]
 
-				if availableSpace > 0 then
-					table.insert(deltas, availableSpace * config.GrowRatio / totalRatio.X)
-				else
-					table.insert(deltas, availableSpace * config.ShrinkRatio / totalRatio.Y)
-				end
-			end
-			deltas = roundAllocations(deltas, availableSpace)
-
-			-- Apply size deltas
-			for i, object in flexObjects do
-				local config = flexConfigs[object]
-				local basis = getBasisSize(object)
-				local delta = deltas[i]
-
-				local x = basis.X
-				local y = basis.Y
-
-				if isVertical then
-					y = UDim.new(basis.Y.Scale, basis.Y.Offset + delta)
-				else
-					x = UDim.new(basis.X.Scale, basis.X.Offset + delta)
-				end
-
-				object.Size = UDim2.new(x, y)
+			if availableSpace > 0 then
+				table.insert(deltas, availableSpace * config.GrowRatio / totalRatio.X)
+			else
+				table.insert(deltas, availableSpace * config.ShrinkRatio / totalRatio.Y)
 			end
 		end
-	end
+		deltas = roundAllocations(deltas, availableSpace)
 
-	if not isFlex then
-		for _, object in flexObjects do
-			object.Size = getBasisSize(object)
+		-- Apply size deltas
+		for i, object in flexObjects do
+			local config = flexConfigs[object]
+			local basis = getBasisSize(object)
+			local delta = deltas[i]
+
+			local x = basis.X
+			local y = basis.Y
+
+			y = UDim.new(basis.Y.Scale, basis.Y.Offset + delta)
+
+			object.Size = UDim2.new(x, y)
 		end
 	end
 
@@ -353,81 +369,65 @@ local function update()
 
 		-- Cross flex alignment
 		if crossFlexAlignment == Enum.UIFlexAlignment.Fill.Name then
-			if isVertical then
-				object.Size = UDim2.new(UDim.new(1, 0), object.Size.Y)
-			else
-				object.Size = UDim2.new(object.Size.X, UDim.new(1, 0))
-			end
+			object.Size = UDim2.new(UDim.new(1, 0), object.Size.Y)
 		else
-			if isVertical then
-				object.Size = UDim2.new(getBasisSize(object).X, object.size.Y)
-			else
-				object.Size = UDim2.new(object.Size.X, getBasisSize(object).Y)
-			end
+			object.Size = UDim2.new(getBasisSize(object).X, object.Size.Y)
 		end
 
-		if isVertical then
-			size = object.AbsoluteSize.Y
-			position = UDim2.fromOffset(0, currentPosition)
+		local absoluteSize = udim2ToAbsolute(object.Size, totalSpace)
+		size = absoluteSize.Y
+		position = UDim2.fromOffset(0, currentPosition)
 
-			if isFlex then
-				local alignment = listConfig.ItemLineAlignment
+		if isFlex then
+			local alignment = listConfig.ItemLineAlignment
 
-				if flexConfigs[object] then
-					alignment = flexConfigs[object].ItemLineAlignment
-				end
+			if flexConfigs[object].ItemLineAlignment ~= Enum.ItemLineAlignment.Automatic.Name then
+				alignment = flexConfigs[object].ItemLineAlignment
+			end
 
-				if alignment == Enum.ItemLineAlignment.Start.Name then
-					-- Nothing to do because the default is left aligned
-				elseif alignment == Enum.ItemLineAlignment.Center.Name then
-					position += UDim2.fromOffset((parent.AbsoluteSize.X - object.AbsoluteSize.X) / 2, 0)
-				elseif alignment == Enum.ItemLineAlignment.End.Name then
-					position += UDim2.fromOffset(parent.AbsoluteSize.X - object.AbsoluteSize.X, 0)
-				elseif alignment == Enum.ItemLineAlignment.Stretch.Name then
-					object.Size = UDim2.new(UDim.new(1, 0), object.Size.Y)
-				end
-			else
-				local alignment = listConfig.HorizontalAlignment
-
-				if alignment == Enum.HorizontalAlignment.Right.Name then
-					position += UDim2.fromOffset(parent.AbsoluteSize.X - object.AbsoluteSize.X, 0)
-				elseif alignment == Enum.HorizontalAlignment.Center.Name then
-					position += UDim2.fromOffset((parent.AbsoluteSize.X - object.AbsoluteSize.X) / 2, 0)
-				end
+			if alignment == Enum.ItemLineAlignment.Start.Name then
+				-- Nothing to do because the default is left aligned
+			elseif alignment == Enum.ItemLineAlignment.Center.Name then
+				position += UDim2.fromOffset((totalSpace.X - absoluteSize.X) / 2, 0)
+			elseif alignment == Enum.ItemLineAlignment.End.Name then
+				position += UDim2.fromOffset(totalSpace.X - absoluteSize.X, 0)
+			elseif alignment == Enum.ItemLineAlignment.Stretch.Name then
+				object.Size = UDim2.new(UDim.new(1, 0), object.Size.Y)
 			end
 		else
-			size = object.AbsoluteSize.X
-			position = UDim2.fromOffset(currentPosition, 0)
+			local alignment = listConfig.HorizontalAlignment
 
-			if isFlex then
-				local alignment = listConfig.ItemLineAlignment
-
-				if flexConfigs[object] then
-					alignment = flexConfigs[object].ItemLineAlignment
-				end
-
-				if alignment == Enum.ItemLineAlignment.Start.Name then
-					-- Nothing to do because the default is left aligned
-				elseif alignment == Enum.ItemLineAlignment.Center.Name then
-					position += UDim2.fromOffset(0, (parent.AbsoluteSize.Y - object.AbsoluteSize.Y) / 2)
-				elseif alignment == Enum.ItemLineAlignment.End.Name then
-					position += UDim2.fromOffset(0, parent.AbsoluteSize.Y - object.AbsoluteSize.Y)
-				elseif alignment == Enum.ItemLineAlignment.Stretch.Name then
-					object.Size = UDim2.new(object.Size.X, UDim.new(1, 0))
-				end
-			else
-				local alignment = listConfig.VerticalAlignment
-
-				if alignment == Enum.VerticalAlignment.Bottom.Name then
-					position += UDim2.fromOffset(0, parent.AbsoluteSize.Y - object.AbsoluteSize.Y)
-				elseif alignment == Enum.VerticalAlignment.Center.Name then
-					position += UDim2.fromOffset(0, (parent.AbsoluteSize.Y - object.AbsoluteSize.Y) / 2)
-				end
+			if alignment == Enum.HorizontalAlignment.Right.Name then
+				position += UDim2.fromOffset(totalSpace.X - absoluteSize.X, 0)
+			elseif alignment == Enum.HorizontalAlignment.Center.Name then
+				position += UDim2.fromOffset((totalSpace.X - absoluteSize.X) / 2, 0)
 			end
 		end
 
 		object.Position = position
 		currentPosition += size + paddingPerChild
+	end
+
+	-- Flip XY again to restore actual values
+
+	if not isVertical then
+		flexAlignment, crossFlexAlignment = crossFlexAlignment, flexAlignment
+
+		totalSpace = Vector2.new(totalSpace.Y, totalSpace.X)
+		totalPadding = flipUdim2(totalPadding)
+		totalChildrenSpace = Vector2.new(totalChildrenSpace.Y, totalChildrenSpace.X)
+
+		for _, object in guiObjects do
+			object.Position = flipUdim2(object.Position)
+			object.Size = flipUdim2(object.Size)
+		end
+	end
+
+	-- Apply actual positions and sizes
+
+	for _, object in guiObjects do
+		object.Position = object.Position
+		object.Size = object.Size
 	end
 
 	if renderUpdateConnectionId and time() - lastChanged > 1 then
