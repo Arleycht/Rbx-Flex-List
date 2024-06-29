@@ -227,10 +227,6 @@ local function roundAllocations(values: { number }, target: number): { number }
 	return result
 end
 
-local function flipUdim2(udim2: UDim2): UDim2
-	return UDim2.new(udim2.Y, udim2.X)
-end
-
 local function update()
 	local parent = script.Parent :: GuiObject
 	local listConfig = getListConfiguration()
@@ -254,7 +250,7 @@ local function update()
 			local config = getFlexConfiguration(object)
 			flexConfigs[object] = config
 
-			if config.FlexMode ~= Enum.UIFlexMode.None.Name and (config.GrowRatio ~= 0 or config.ShrinkRatio ~= 0) then
+			if config.FlexMode ~= Enum.UIFlexMode.None.Name then
 				totalRatio += Vector2.new(config.GrowRatio, config.ShrinkRatio)
 				table.insert(flexObjects, object)
 			end
@@ -278,12 +274,12 @@ local function update()
 		flexAlignment, crossFlexAlignment = crossFlexAlignment, flexAlignment
 
 		totalSpace = Vector2.new(totalSpace.Y, totalSpace.X)
-		totalPadding = flipUdim2(totalPadding)
+		totalPadding = UDim2.new(totalPadding.Y, totalPadding.X)
 		totalChildrenSpace = Vector2.new(totalChildrenSpace.Y, totalChildrenSpace.X)
 
 		for _, object in guiObjects do
-			object.Position = flipUdim2(object.Position)
-			object.Size = flipUdim2(object.Size)
+			object.Position = UDim2.new(object.Position.Y, object.Position.X)
+			object.Size = UDim2.new(object.Size.Y, object.Size.X)
 		end
 	end
 
@@ -414,12 +410,12 @@ local function update()
 		flexAlignment, crossFlexAlignment = crossFlexAlignment, flexAlignment
 
 		totalSpace = Vector2.new(totalSpace.Y, totalSpace.X)
-		totalPadding = flipUdim2(totalPadding)
+		totalPadding = UDim2.new(totalPadding.Y, totalPadding.X)
 		totalChildrenSpace = Vector2.new(totalChildrenSpace.Y, totalChildrenSpace.X)
 
 		for _, object in guiObjects do
-			object.Position = flipUdim2(object.Position)
-			object.Size = flipUdim2(object.Size)
+			object.Position = UDim2.new(object.Position.Y, object.Position.X)
+			object.Size = UDim2.new(object.Size.Y, object.Size.X)
 		end
 	end
 
