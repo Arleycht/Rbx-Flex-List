@@ -320,6 +320,17 @@ local function update()
 	local verticalAlignment = listConfig.VerticalAlignment
 	local horizontalAlignment = listConfig.HorizontalAlignment
 
+	local ALIGNMENT_MAPPING = {
+		Top = "Start",
+		Left = "Start",
+		Bottom = "End",
+		Right = "End",
+		Center = "Center",
+	}
+
+	verticalAlignment = ALIGNMENT_MAPPING[verticalAlignment]
+	horizontalAlignment = ALIGNMENT_MAPPING[horizontalAlignment]
+
 	local totalSpace = parent.AbsoluteSize
 	local fixedPadding = Vector2.new()
 
@@ -343,6 +354,7 @@ local function update()
 
 	if not isVertical then
 		flex, crossFlex = crossFlex, flex
+		verticalAlignment, horizontalAlignment = horizontalAlignment, verticalAlignment
 
 		totalSpace = Vector2.new(totalSpace.Y, totalSpace.X)
 		fixedPadding = Vector2.new(fixedPadding.Y, fixedPadding.X)
@@ -408,6 +420,7 @@ local function update()
 
 	local currentX = 0
 	local rowPadding = listPadding
+	local useCrossAlignment = false
 
 	if crossFlex ~= Enum.UIFlexAlignment.Fill.Name then
 		local emptyRowSpace = availableSpace.X
@@ -424,41 +437,57 @@ local function update()
 		elseif crossFlex == Enum.UIFlexAlignment.SpaceEvenly.Name then
 			rowPadding = emptyRowSpace / (#flexRows + 1)
 			currentX = rowPadding
-		end
-	elseif horizontalAlignment ~= Enum.HorizontalAlignment.Left.Name then
-		currentX = availableSpace.X
-
-		for _, width in flexRowWidths do
-			currentX -= width
-		end
-
-		if horizontalAlignment == Enum.HorizontalAlignment.Center.Name then
-			currentX /= 2
+		elseif crossFlex == Enum.UIFlexAlignment.None.Name then
+			useCrossAlignment = true
 		end
 	end
 
 	-- Cross flex
 
-	if
-		crossFlex == Enum.UIFlexMode.Fill.Name
-		and (
-			listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Automatic.Name
-			or listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Stretch.Name
-		)
-	then
-		local sizes = flexRowWidths
-		local ratios = {}
-
-		for i, flexRow in flexRows do
-			ratios[i] = Vector2.one
+	if listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Automatic.Name then
+		if crossFlex == Enum.UIFlexMode.Fill.Name then
+			listConfig.ItemLineAlignment = Enum.ItemLineAlignment.Stretch.Name
+		elseif flex ~= Enum.UIFlexAlignment.None.Name then
+			print("Automatic line alignment")
+			useCrossAlignment = true
 		end
+	end
 
-		local target = availableSpace.X - (rowPadding * (#sizes - 1))
-		local newSizes = calculateFlex(sizes, ratios, target)
+	if crossFlex == Enum.UIFlexMode.Fill.Name then
+		if listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Stretch.Name then
+			local sizes = flexRowWidths
+			local ratios = {}
 
-		for i, flexRow in flexRows do
-			for _, object in flexRow do
-				object.Size = UDim2.new(UDim.new(0, newSizes[i]), object.Size.Y)
+			for i, flexRow in flexRows do
+				ratios[i] = Vector2.one
+			end
+
+			local target = availableSpace.X - (rowPadding * (#sizes - 1))
+			local newSizes = calculateFlex(sizes, ratios, target)
+
+			for i, flexRow in flexRows do
+				for _, object in flexRow do
+					object.Size = UDim2.new(UDim.new(0, newSizes[i]), object.Size.Y)
+				end
+			end
+		else
+			-- Override cross alignment to reuse code
+			horizontalAlignment = listConfig.ItemLineAlignment
+			useCrossAlignment = true
+		end
+	end
+
+	-- Use cross alignment when flex is disabled
+	if useCrossAlignment then
+		if horizontalAlignment ~= "Start" then
+			currentX = availableSpace.X
+
+			for _, width in flexRowWidths do
+				currentX -= width
+			end
+
+			if horizontalAlignment == "Center" then
+				currentX /= 2
 			end
 		end
 	end
@@ -506,22 +535,11 @@ local function update()
 			columnPadding = emptyColumnSpace / (#flexRow + 1)
 			currentY = columnPadding
 		elseif flex == Enum.UIFlexAlignment.None.Name then
-			local MAPPING = {
-				Top = "Start",
-				Left = "Start",
-				Bottom = "End",
-				Right = "End",
-				Center = "Center",
-			}
-
-			local alignment = isVertical and verticalAlignment or horizontalAlignment
-			alignment = MAPPING[alignment]
-
 			emptyColumnSpace -= columnPadding * (#flexRow - 1)
 
-			if alignment == "Center" then
+			if verticalAlignment == "Center" then
 				currentY = emptyColumnSpace / 2
-			elseif alignment == "End" then
+			elseif verticalAlignment == "End" then
 				currentY = emptyColumnSpace
 			end
 		end
@@ -530,10 +548,16 @@ local function update()
 			object.Position = UDim2.fromOffset(currentX, currentY)
 			currentY += object.AbsoluteSize.Y + columnPadding
 
-			if listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Center.Name then
-				object.Position += UDim2.fromOffset((flexRowWidths[i] - object.AbsoluteSize.X) / 2, 0)
-			elseif listConfig.ItemLineAlignment == Enum.ItemLineAlignment.End.Name then
-				object.Position += UDim2.fromOffset(flexRowWidths[i] - object.AbsoluteSize.X, 0)
+			if useCrossAlignment and horizontalAlignment ~= "Start" then
+				local width = flexRowWidths[i]
+				local objectWidth = object.AbsoluteSize.X
+				local offset = width - objectWidth
+
+				if horizontalAlignment == "Center" then
+					offset /= 2
+				end
+
+				object.Position += UDim2.fromOffset(offset, 0)
 			end
 
 			maxWidth = math.max(maxWidth, object.AbsoluteSize.X)
@@ -546,6 +570,7 @@ local function update()
 
 	if not isVertical then
 		--flex, crossFlex = crossFlex, flex
+		--verticalAlignment, horizontalAlignment = horizontalAlignment, verticalAlignment
 
 		--totalSpace = Vector2.new(totalSpace.Y, totalSpace.X)
 		--fixedPadding = Vector2.new(fixedPadding.Y, fixedPadding.X)
