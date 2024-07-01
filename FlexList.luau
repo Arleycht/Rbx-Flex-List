@@ -377,7 +377,7 @@ local function update()
 			local object = guiObjects[i]
 			local size = object.AbsoluteSize
 
-			if listConfig.Wraps and currentY + size.Y > availableSpace.Y then
+			if listConfig.Wraps and currentY + size.Y > availableSpace.Y and #flexRow > 0 then
 				table.insert(flexRows, flexRow)
 				table.insert(flexRowWidths, maxWidth)
 
