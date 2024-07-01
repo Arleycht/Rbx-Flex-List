@@ -13,16 +13,6 @@ local function map<A, B>(t: { A }, f: (A) -> B): { B }
 	return u
 end
 
-local function filter<A>(t: { A }, f: (A) -> boolean): { A }
-	local u = {}
-	for _, v in t do
-		if f(v) then
-			table.insert(u, v)
-		end
-	end
-	return u
-end
-
 local function fold<A, B>(t: { A }, f: (A, B) -> B, init: B): B
 	local u = init
 	for _, v in t do
@@ -371,15 +361,10 @@ local function update()
 
 	-- Flex
 
-	local isFlex = (flex == Enum.UIFlexAlignment.Fill.Name)
 	local listPadding = listConfig.Padding.Offset + (listConfig.Padding.Scale * totalSpace.Y)
-
+	local availableSpace = totalSpace - fixedPadding
 	local flexRows = {}
 	local flexRowWidths = {}
-	local maxRowSize = 0
-
-	local availableSpace = totalSpace - fixedPadding
-	local totalListPadding = listPadding * (#guiObjects - 1)
 
 	-- Calculate wrapping
 
