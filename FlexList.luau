@@ -343,7 +343,6 @@ local function update()
 
 	if not isVertical then
 		flex, crossFlex = crossFlex, flex
-		verticalAlignment, horizontalAlignment = verticalAlignment, horizontalAlignment
 
 		totalSpace = Vector2.new(totalSpace.Y, totalSpace.X)
 		fixedPadding = Vector2.new(fixedPadding.Y, fixedPadding.X)
@@ -506,6 +505,25 @@ local function update()
 		elseif flex == Enum.UIFlexAlignment.SpaceEvenly.Name then
 			columnPadding = emptyColumnSpace / (#flexRow + 1)
 			currentY = columnPadding
+		elseif flex == Enum.UIFlexAlignment.None.Name then
+			local MAPPING = {
+				Top = "Start",
+				Left = "Start",
+				Bottom = "End",
+				Right = "End",
+				Center = "Center",
+			}
+
+			local alignment = isVertical and verticalAlignment or horizontalAlignment
+			alignment = MAPPING[alignment]
+
+			emptyColumnSpace -= columnPadding * (#flexRow - 1)
+
+			if alignment == "Center" then
+				currentY = emptyColumnSpace / 2
+			elseif alignment == "End" then
+				currentY = emptyColumnSpace
+			end
 		end
 
 		for _, object in flexRow do
@@ -528,7 +546,6 @@ local function update()
 
 	if not isVertical then
 		--flex, crossFlex = crossFlex, flex
-		--verticalAlignment, horizontalAlignment = verticalAlignment, horizontalAlignment
 
 		--totalSpace = Vector2.new(totalSpace.Y, totalSpace.X)
 		--fixedPadding = Vector2.new(fixedPadding.Y, fixedPadding.X)
@@ -543,13 +560,19 @@ local function update()
 		game:GetService("RunService"):UnbindFromRenderStep(renderUpdateConnectionId)
 		renderUpdateConnectionId = nil
 	end
+
+	print("Updated")
 end
 
 local function onChanged()
-	if not renderUpdateConnectionId and time() - lastChanged < 1 then
-		renderUpdateConnectionId = game:GetService("HttpService"):GenerateGUID()
-		game:GetService("RunService")
-			:BindToRenderStep(renderUpdateConnectionId, Enum.RenderPriority.Camera.Value - 1, update)
+	if not renderUpdateConnectionId then
+		if time() - lastChanged < 1 then
+			renderUpdateConnectionId = game:GetService("HttpService"):GenerateGUID()
+			game:GetService("RunService")
+				:BindToRenderStep(renderUpdateConnectionId, Enum.RenderPriority.Camera.Value - 1, update)
+		else
+			update()
+		end
 	end
 	lastChanged = time()
 end
@@ -561,6 +584,7 @@ local function init()
 	importListConfiguration()
 
 	script.Changed:Connect(onChanged)
+	script.AttributeChanged:Connect(onChanged)
 	parent.Changed:Connect(onChanged)
 	parent.DescendantAdded:Connect(function(descendant)
 		if descendant:IsA("GuiObject") then
