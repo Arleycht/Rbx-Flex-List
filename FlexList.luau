@@ -114,15 +114,6 @@ local function importListConfiguration()
 	end
 end
 
-local function importFlexConfiguration(object: GuiObject, config)
-	local flexItemConfiguration = object:FindFirstChildWhichIsA("UIFlexItem")
-	if flexItemConfiguration then
-		config.FlexMode = flexItemConfiguration.FlexMode.Name
-		config.ItemLineAlignment = flexItemConfiguration.ItemLineAlignment.Name
-		flexItemConfiguration:Destroy()
-	end
-end
-
 local function getListConfiguration()
 	local enumDefaults = {
 		FillDirection = map(Enum.FillDirection:GetEnumItems(), getName),
@@ -214,8 +205,6 @@ local function getFlexConfiguration(object: GuiObject)
 			flexConfig.ShrinkRatio = 1
 		end
 
-		importFlexConfiguration(object, flexConfig)
-
 		return flexConfig
 	end
 
@@ -225,8 +214,6 @@ local function getFlexConfiguration(object: GuiObject)
 		ItemLineAlignment = Enum.ItemLineAlignment.Automatic.Name,
 		ShrinkRatio = 0,
 	}
-
-	importFlexConfiguration(object, config)
 
 	return config
 end
@@ -278,27 +265,43 @@ local function roundAllocations(values: { number }, target: number): { number }
 end
 
 local function calculateFlex(values: { number }, ratios: { Vector2 }, target: number)
-	local totalRatio = fold(ratios, function(a, b)
-		return a + b
-	end, Vector2.zero)
 	local available = target - fold(values, function(a, b)
 		return a + b
 	end, 0)
+	local totalRatio = fold(ratios, function(a, b)
+		return a + b
+	end, Vector2.zero)
+
 	local newValues = {}
 
-	for i, v in values do
-		local ratio = ratios[i].X / totalRatio.Y
+	if available > 0 then
+		for i, v in values do
+			local ratio = ratios[i].X / totalRatio.X
 
-		if available < 0 then
-			ratio = ratios[i].Y / totalRatio.Y
+			-- If the total ratio is 0
+			if ratio ~= ratio then
+				ratio = 1 / #values
+			end
+
+			newValues[i] = v + (available * ratio)
+		end
+	else
+		local divisor = 0
+
+		for i, v in values do
+			newValues[i] = v * ratios[i].Y
+
+			if newValues[i] == 0 then
+				newValues[i] = v
+			end
+
+			divisor += newValues[i]
 		end
 
-		-- If the total ratio is 0
-		if ratio ~= ratio then
-			ratio = 1 / #values
+		for i = 1, #newValues do
+			local ratio = newValues[i] / divisor
+			newValues[i] = values[i] + (available * ratio)
 		end
-
-		newValues[i] = v + (available * ratio)
 	end
 
 	return roundAllocations(newValues, target)
@@ -398,61 +401,6 @@ local function update()
 		end
 	end
 
-	-- Cross flex
-
-	if
-		crossFlex == Enum.UIFlexMode.Fill.Name
-		and (
-			listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Automatic.Name
-			or listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Stretch.Name
-		)
-	then
-		local sizes = {}
-		local ratios = {}
-
-		for i, flexRow in flexRows do
-			sizes[i] = 0
-			ratios[i] = Vector2.one
-
-			for _, object in flexRow do
-				sizes[i] = math.max(sizes[i], object.AbsoluteSize.X)
-			end
-		end
-
-		local target = availableSpace.X - (listPadding * (#sizes - 1))
-		local newSizes = calculateFlex(sizes, ratios, target)
-
-		for i, flexRow in flexRows do
-			for _, object in flexRow do
-				object.Size = UDim2.new(UDim.new(0, newSizes[i]), object.Size.Y)
-			end
-		end
-	end
-
-	-- Normal flex
-
-	if flex == Enum.UIFlexMode.Fill.Name then
-		for i, flexRow in flexRows do
-			local target = availableSpace.Y - (listPadding * (#flexRow - 1))
-			local sizes = {}
-			local ratios = {}
-			local totalRatios = Vector2.zero
-
-			for j, object in flexRow do
-				sizes[j] = object.AbsoluteSize.Y
-				ratios[j] = Vector2.new(flexConfigs[object].GrowRatio, flexConfigs[object].ShrinkRatio)
-
-				totalRatios += ratios[j]
-			end
-
-			local newSizes = calculateFlex(sizes, ratios, target)
-
-			for j, object in flexRow do
-				object.Size = UDim2.new(object.Size.X, UDim.new(0, newSizes[j]))
-			end
-		end
-	end
-
 	-- List layout
 
 	local currentX = 0
@@ -483,6 +431,56 @@ local function update()
 
 		if horizontalAlignment == Enum.HorizontalAlignment.Center.Name then
 			currentX /= 2
+		end
+	end
+
+	-- Cross flex
+
+	if
+		crossFlex == Enum.UIFlexMode.Fill.Name
+		and (
+			listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Automatic.Name
+			or listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Stretch.Name
+		)
+	then
+		local sizes = flexRowWidths
+		local ratios = {}
+
+		for i, flexRow in flexRows do
+			ratios[i] = Vector2.one
+		end
+
+		local target = availableSpace.X - (rowPadding * (#sizes - 1))
+		local newSizes = calculateFlex(sizes, ratios, target)
+
+		for i, flexRow in flexRows do
+			for _, object in flexRow do
+				object.Size = UDim2.new(UDim.new(0, newSizes[i]), object.Size.Y)
+			end
+		end
+	end
+
+	-- Normal flex
+
+	if flex == Enum.UIFlexMode.Fill.Name then
+		for i, flexRow in flexRows do
+			local target = availableSpace.Y - (listPadding * (#flexRow - 1))
+			local sizes = {}
+			local ratios = {}
+			local totalRatios = Vector2.zero
+
+			for j, object in flexRow do
+				sizes[j] = object.AbsoluteSize.Y
+				ratios[j] = Vector2.new(flexConfigs[object].GrowRatio, flexConfigs[object].ShrinkRatio)
+
+				totalRatios += ratios[j]
+			end
+
+			local newSizes = calculateFlex(sizes, ratios, target)
+
+			for j, object in flexRow do
+				object.Size = UDim2.new(object.Size.X, UDim.new(0, newSizes[j]))
+			end
 		end
 	end
 
