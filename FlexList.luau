@@ -23,12 +23,53 @@ local function filter<A>(t: { A }, f: (A) -> boolean): { A }
 	return u
 end
 
-local function fold<A, B>(t: { A }, f: (B, A) -> B, init: B): B
+local function fold<A, B>(t: { A }, f: (A, B) -> B, init: B): B
 	local u = init
 	for _, v in t do
-		u = f(u, v)
+		u = f(v, u)
 	end
 	return u
+end
+
+-- Merge sort because there is no native stable sort implementation
+local function mergeSort<T>(t: { T }, comparator: (a: T, b: T) -> boolean): { T }
+	if #t < 2 then
+		return t
+	elseif #t == 2 then
+		local a, b = t[1], t[2]
+		if comparator(a, b) then
+			return { a, b }
+		else
+			return { b, a }
+		end
+	else
+		local mid = math.ceil(#t / 2)
+		local left = mergeSort(table.move(t, 1, mid, 1, {}), comparator)
+		local right = mergeSort(table.move(t, mid + 1, #t, 1, {}), comparator)
+		local result = {}
+		local i, j, k = 1, 1, 1
+		while i <= #left and j <= #right do
+			if comparator(left[i], right[j]) then
+				result[k] = left[i]
+				i += 1
+			else
+				result[k] = right[j]
+				j += 1
+			end
+			k += 1
+		end
+		while i <= #left do
+			result[k] = left[i]
+			i += 1
+			k += 1
+		end
+		while j <= #right do
+			result[k] = right[j]
+			j += 1
+			k += 1
+		end
+		return result
+	end
 end
 
 local function getName(o)
@@ -127,6 +168,24 @@ end
 
 local function getFlexConfiguration(object: GuiObject)
 	local config = object:FindFirstChild("FlexConfiguration")
+	local uiFlexItem = object:FindFirstChildWhichIsA("UIFlexItem")
+
+	if uiFlexItem then
+		if config then
+			config:Destroy()
+		end
+
+		config = Instance.new("Configuration") :: Instance
+		config.Name = "FlexConfiguration"
+		config.Parent = object
+
+		config:SetAttribute("FlexMode", uiFlexItem.FlexMode.Name)
+		config:SetAttribute("GrowRatio", uiFlexItem.GrowRatio)
+		config:SetAttribute("ItemLineAlignment", uiFlexItem.ItemLineAlignment.Name)
+		config:SetAttribute("ShrinkRatio", uiFlexItem.ShrinkRatio)
+
+		uiFlexItem:Destroy()
+	end
 
 	if config then
 		local flexMode = getAttributeWithDefault(config, "FlexMode", Enum.UIFlexMode.None.Name)
@@ -140,13 +199,9 @@ local function getFlexConfiguration(object: GuiObject)
 		local uiFlexModeItems = map(Enum.UIFlexMode:GetEnumItems(), getName)
 		local itemLineAlignmentItems = map(Enum.ItemLineAlignment:GetEnumItems(), getName)
 
-		if not table.find(uiFlexModeItems, flexMode) then
-			flexMode = Enum.UIFlexMode.None.Name
-		end
-
-		if not table.find(itemLineAlignmentItems, itemLineAlignment) then
-			itemLineAlignment = Enum.ItemLineAlignment.Automatic.Name
-		end
+		flexMode = snapChoice(uiFlexModeItems, flexMode) or Enum.UIFlexMode.None.Name
+		itemLineAlignment = snapChoice(itemLineAlignmentItems, itemLineAlignment)
+			or Enum.ItemLineAlignment.Automatic.Name
 
 		growRatio = math.max(0, growRatio)
 		shrinkRatio = math.max(0, shrinkRatio)
@@ -186,13 +241,6 @@ local function getFlexConfiguration(object: GuiObject)
 	return config
 end
 
-local function getBasisSize(object: GuiObject): UDim2
-	if not object:GetAttribute(ATTR_BASIS_SIZE) then
-		object:SetAttribute(ATTR_BASIS_SIZE, object.Size)
-	end
-	return object:GetAttribute(ATTR_BASIS_SIZE)
-end
-
 local function udimToAbsolute(size: UDim, parentSize: number): number
 	return size.Offset + (size.Scale * parentSize)
 end
@@ -201,92 +249,65 @@ local function udim2ToAbsolute(size: UDim2, parentSize: Vector2): Vector2
 	return Vector2.new(udimToAbsolute(size.X, parentSize.X), udimToAbsolute(size.Y, parentSize.Y))
 end
 
--- Merge sort because there is no native stable sort implementation
-local function mergeSort<T>(t: { T }, comparator: (a: T, b: T) -> boolean): { T }
-	if #t < 2 then
-		return t
-	elseif #t == 2 then
-		local a, b = t[1], t[2]
-		if comparator(a, b) then
-			return { a, b }
-		else
-			return { b, a }
-		end
-	else
-		local mid = math.ceil(#t / 2)
-		local left = mergeSort(table.move(t, 1, mid, 1, {}), comparator)
-		local right = mergeSort(table.move(t, mid + 1, #t, 1, {}), comparator)
-		local result = {}
-		local i, j, k = 1, 1, 1
-		while i <= #left and j <= #right do
-			if comparator(left[i], right[j]) then
-				result[k] = left[i]
-				i += 1
-			else
-				result[k] = right[j]
-				j += 1
-			end
-			k += 1
-		end
-		while i <= #left do
-			result[k] = left[i]
-			i += 1
-			k += 1
-		end
-		while j <= #right do
-			result[k] = right[j]
-			j += 1
-			k += 1
-		end
-		return result
+local function getBasisSize(object: GuiObject): UDim2
+	if not object:GetAttribute(ATTR_BASIS_SIZE) then
+		object:SetAttribute(ATTR_BASIS_SIZE, object.Size)
 	end
+	return object:GetAttribute(ATTR_BASIS_SIZE)
 end
 
 local function roundAllocations(values: { number }, target: number): { number }
 	local totalError = target
-	local newValues = {}
+	local reallocated = {}
+
 	for i, v in values do
-		local roundedDelta = math.floor(v)
-		totalError -= roundedDelta
-		table.insert(newValues, {
+		local roundedValue = math.floor(v)
+		totalError -= roundedValue
+		table.insert(reallocated, {
 			index = i,
-			delta = roundedDelta,
-			error = v - roundedDelta,
+			value = roundedValue,
+			error = v - roundedValue,
 		})
 	end
 
-	mergeSort(newValues, function(a, b)
+	mergeSort(reallocated, function(a, b)
 		return a.error > b.error
 	end)
 
 	local result = {}
-	for _, entry in newValues do
+
+	for _, entry in reallocated do
 		if totalError >= 1 then
-			entry.delta += 1
+			entry.value += 1
 			totalError -= 1
 		end
-		result[entry.index] = entry.delta
+		result[entry.index] = entry.value
 	end
 
 	return result
 end
 
 local function calculateFlex(values: { number }, ratios: { Vector2 }, target: number)
-	local sum = fold(values, function(b: number, a: number)
-		return b + a
-	end, 0)
-	local totalRatio = fold(ratios, function(b: Vector2, a: Vector2)
-		return b + a
+	local totalRatio = fold(ratios, function(a, b)
+		return a + b
 	end, Vector2.zero)
-	local available = target - sum
-
-	-- Round size deltas to nearest integer value while conserving the desired total
+	local available = target - fold(values, function(a, b)
+		return a + b
+	end, 0)
 	local newValues = {}
+
 	for i, v in values do
-		local ratio = ratios[i].X / totalRatio.X
+		local ratio = ratios[i].X / totalRatio.Y
+
 		if available < 0 then
 			ratio = ratios[i].Y / totalRatio.Y
 		end
+
+		-- If the total ratio is 0
+		if ratio ~= ratio then
+			ratio = 1 / #values
+		end
+
 		newValues[i] = v + (available * ratio)
 	end
 
@@ -299,33 +320,22 @@ local function update()
 	local isVertical = (listConfig.FillDirection == Enum.FillDirection.Vertical.Name)
 	local flex = listConfig.VerticalFlex
 	local crossFlex = listConfig.HorizontalFlex
+	local verticalAlignment = listConfig.VerticalAlignment
+	local horizontalAlignment = listConfig.HorizontalAlignment
 
 	local totalSpace = parent.AbsoluteSize
-	local totalPadding = Vector2.new()
-	local totalChildrenSpace = Vector2.new()
-	local totalRatio = Vector2.zero
-	local guiObjects = {}
-	local flexObjects = {}
-	local flexConfigs = {}
+	local fixedPadding = Vector2.new()
 
-	-- Load configs and calculate sums
+	local guiObjects = {}
+	local flexConfigs = {}
 
 	for _, object in parent:GetChildren() do
 		if object:IsA("GuiObject") then
-			local basis = getBasisSize(object)
-			local config = getFlexConfiguration(object)
-			flexConfigs[object] = config
-
-			if config.FlexMode ~= Enum.UIFlexMode.None.Name then
-				totalRatio += Vector2.new(config.GrowRatio, config.ShrinkRatio)
-				table.insert(flexObjects, object)
-			end
-
-			totalChildrenSpace += udim2ToAbsolute(basis, totalSpace)
-			object.Size = basis
+			object.Size = getBasisSize(object)
+			flexConfigs[object] = getFlexConfiguration(object)
 			table.insert(guiObjects, object)
 		elseif object:IsA("UIPadding") then
-			totalPadding += udim2ToAbsolute(
+			fixedPadding += udim2ToAbsolute(
 				UDim2.new(object.PaddingLeft + object.PaddingRight, object.PaddingTop + object.PaddingBottom),
 				totalSpace
 			)
@@ -336,10 +346,10 @@ local function update()
 
 	if not isVertical then
 		flex, crossFlex = crossFlex, flex
+		verticalAlignment, horizontalAlignment = verticalAlignment, horizontalAlignment
 
 		totalSpace = Vector2.new(totalSpace.Y, totalSpace.X)
-		totalPadding = Vector2.new(totalPadding.Y, totalPadding.X)
-		totalChildrenSpace = Vector2.new(totalChildrenSpace.Y, totalChildrenSpace.X)
+		fixedPadding = Vector2.new(fixedPadding.Y, fixedPadding.X)
 
 		for _, object in guiObjects do
 			object.Position = UDim2.new(object.Position.Y, object.Position.X)
@@ -358,143 +368,183 @@ local function update()
 	end
 
 	guiObjects = mergeSort(guiObjects, sortComparator)
-	flexObjects = mergeSort(flexObjects, sortComparator)
 
 	-- Flex
 
 	local isFlex = (flex == Enum.UIFlexAlignment.Fill.Name)
+	local listPadding = listConfig.Padding.Offset + (listConfig.Padding.Scale * totalSpace.Y)
 
-	local availableSpace = totalSpace.Y - totalPadding.Y
-	local paddingPerChild = listConfig.Padding.Offset + (listConfig.Padding.Scale * totalSpace.Y)
-	local listPadding = paddingPerChild * (#guiObjects - 1)
 	local flexRows = {}
+	local flexRowWidths = {}
+	local maxRowSize = 0
 
-	if not isFlex then
-		for _, object in guiObjects do
-			object.Size = getBasisSize(object)
+	local availableSpace = totalSpace - fixedPadding
+	local totalListPadding = listPadding * (#guiObjects - 1)
+
+	-- Calculate wrapping
+
+	do
+		local flexRow = {}
+		local maxWidth = 0
+		local currentY = 0
+
+		for i = 1, #guiObjects do
+			local object = guiObjects[i]
+			local size = object.AbsoluteSize
+
+			if listConfig.Wraps and currentY + size.Y > availableSpace.Y then
+				table.insert(flexRows, flexRow)
+				table.insert(flexRowWidths, maxWidth)
+
+				flexRow = {}
+				maxWidth = 0
+				currentY = 0
+			end
+
+			table.insert(flexRow, object)
+
+			maxWidth = math.max(maxWidth, size.X)
+			currentY += size.Y + listPadding
 		end
-	else
-		-- Subtract list padding
-		availableSpace -= listPadding
 
-		-- Apply default if everything is not flex, but the list has flex enabled
+		if #flexRow > 0 then
+			table.insert(flexRows, flexRow)
+			table.insert(flexRowWidths, maxWidth)
+		end
+	end
 
-		if (availableSpace > 0 and totalRatio.X == 0) or (availableSpace < 0 and totalRatio.Y == 0) then
-			for object, flexConfig in flexConfigs do
-				flexConfig.FlexMode = Enum.UIFlexMode.Fill.Name
-				flexConfig.GrowRatio = 1
-				flexConfig.ShrinkRatio = 1
-				totalRatio += Vector2.one
-				table.insert(flexObjects, object)
+	-- Cross flex
+
+	if
+		crossFlex == Enum.UIFlexMode.Fill.Name
+		and (
+			listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Automatic.Name
+			or listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Stretch.Name
+		)
+	then
+		local sizes = {}
+		local ratios = {}
+
+		for i, flexRow in flexRows do
+			sizes[i] = 0
+			ratios[i] = Vector2.one
+
+			for _, object in flexRow do
+				sizes[i] = math.max(sizes[i], object.AbsoluteSize.X)
 			end
 		end
 
-		-- Calculate wrapping
-		if listConfig.Wraps then
-			local row = {}
-			local currentRow = 0
-			local currentSpace = 0
+		local target = availableSpace.X - (listPadding * (#sizes - 1))
+		local newSizes = calculateFlex(sizes, ratios, target)
 
-			for i = 1, #flexObjects do
-				local size = udimToAbsolute(flexObjects[i].Size.Y, totalSpace.Y)
-				currentSpace += size
+		for i, flexRow in flexRows do
+			for _, object in flexRow do
+				object.Size = UDim2.new(UDim.new(0, newSizes[i]), object.Size.Y)
+			end
+		end
+	end
 
-				table.insert(row, i)
+	-- Normal flex
 
-				if currentSpace > availableSpace then
-					currentRow += 1
-					table.insert(flexRows, row)
-					row = {}
-				end
+	if flex == Enum.UIFlexMode.Fill.Name then
+		for i, flexRow in flexRows do
+			local target = availableSpace.Y - (listPadding * (#flexRow - 1))
+			local sizes = {}
+			local ratios = {}
+			local totalRatios = Vector2.zero
+
+			for j, object in flexRow do
+				sizes[j] = object.AbsoluteSize.Y
+				ratios[j] = Vector2.new(flexConfigs[object].GrowRatio, flexConfigs[object].ShrinkRatio)
+
+				totalRatios += ratios[j]
 			end
 
-			print(flexRows)
-		end
+			local newSizes = calculateFlex(sizes, ratios, target)
 
-		local sizes = map(flexObjects, function(x)
-			return udimToAbsolute(x.Size.Y, totalSpace.Y)
-		end)
-		local ratios = map(flexObjects, function(x)
-			return Vector2.new(flexConfigs[x].GrowRatio, flexConfigs[x].ShrinkRatio)
-		end)
-
-		local newSizes = calculateFlex(sizes, ratios, availableSpace)
-		for i = 1, #newSizes do
-			local basis = getBasisSize(flexObjects[i])
-			flexObjects[i].Size = UDim2.new(basis.X, UDim.new(0, newSizes[i]))
+			for j, object in flexRow do
+				object.Size = UDim2.new(object.Size.X, UDim.new(0, newSizes[j]))
+			end
 		end
 	end
 
 	-- List layout
 
-	local emptySpace = availableSpace - totalChildrenSpace.Y
-	local currentPosition = 0
+	local currentX = 0
+	local rowPadding = listPadding
 
-	if flex == Enum.UIFlexAlignment.SpaceAround.Name then
-		paddingPerChild = emptySpace / #guiObjects
-		currentPosition = paddingPerChild / 2
-	elseif flex == Enum.UIFlexAlignment.SpaceBetween.Name then
-		paddingPerChild = emptySpace / (#guiObjects - 1)
-	elseif flex == Enum.UIFlexAlignment.SpaceEvenly.Name then
-		paddingPerChild = emptySpace / (#guiObjects + 1)
-		currentPosition = paddingPerChild
+	if crossFlex ~= Enum.UIFlexAlignment.Fill.Name then
+		local emptyRowSpace = availableSpace.X
+
+		for _, width in flexRowWidths do
+			emptyRowSpace -= width
+		end
+
+		if crossFlex == Enum.UIFlexAlignment.SpaceAround.Name then
+			rowPadding = emptyRowSpace / #flexRows
+			currentX = rowPadding / 2
+		elseif crossFlex == Enum.UIFlexAlignment.SpaceBetween.Name then
+			rowPadding = emptyRowSpace / (#flexRows - 1)
+		elseif crossFlex == Enum.UIFlexAlignment.SpaceEvenly.Name then
+			rowPadding = emptyRowSpace / (#flexRows + 1)
+			currentX = rowPadding
+		end
+	elseif horizontalAlignment ~= Enum.HorizontalAlignment.Left.Name then
+		currentX = availableSpace.X
+
+		for _, width in flexRowWidths do
+			currentX -= width
+		end
+
+		if horizontalAlignment == Enum.HorizontalAlignment.Center.Name then
+			currentX /= 2
+		end
 	end
 
-	for _, object in guiObjects do
-		local position = UDim2.fromOffset(0, currentPosition)
-		local size = udim2ToAbsolute(object.Size, totalSpace)
+	for i, flexRow in flexRows do
+		local maxWidth = 0
+		local currentY = 0
+		local columnPadding = listPadding
+		local emptyColumnSpace = availableSpace.Y
 
-		local offset = 0
-		local stretch = false
+		for _, object in flexRow do
+			emptyColumnSpace -= object.AbsoluteSize.Y
+		end
 
-		if crossFlex == Enum.UIFlexAlignment.None.Name then
-			local alignment = listConfig.HorizontalAlignment
+		if flex == Enum.UIFlexAlignment.SpaceAround.Name then
+			columnPadding = emptyColumnSpace / #flexRow
+			currentY = columnPadding / 2
+		elseif flex == Enum.UIFlexAlignment.SpaceBetween.Name then
+			columnPadding = emptyColumnSpace / (#flexRow - 1)
+		elseif flex == Enum.UIFlexAlignment.SpaceEvenly.Name then
+			columnPadding = emptyColumnSpace / (#flexRow + 1)
+			currentY = columnPadding
+		end
 
-			if alignment == Enum.HorizontalAlignment.Center.Name then
-				offset = 0.5
-			elseif alignment == Enum.HorizontalAlignment.Right.Name then
-				offset = 1
-			end
-		elseif crossFlex == Enum.UIFlexAlignment.Fill.Name then
-			if
-				listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Automatic.Name
-				or listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Stretch.Name
-			then
-				stretch = true
+		for _, object in flexRow do
+			object.Position = UDim2.fromOffset(currentX, currentY)
+			currentY += object.AbsoluteSize.Y + columnPadding
+
+			if listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Center.Name then
+				object.Position += UDim2.fromOffset((flexRowWidths[i] - object.AbsoluteSize.X) / 2, 0)
 			elseif listConfig.ItemLineAlignment == Enum.ItemLineAlignment.End.Name then
-				offset = 1
-			elseif listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Center.Name then
-				offset = 0.5
+				object.Position += UDim2.fromOffset(flexRowWidths[i] - object.AbsoluteSize.X, 0)
 			end
-		elseif crossFlex == Enum.UIFlexAlignment.SpaceEvenly.Name then
-			-- TODO: When wrapping is implement, this will have a different outcome than the real implementation
-			offset = 0.5
-		elseif crossFlex == Enum.UIFlexAlignment.SpaceAround.Name then
-			-- TODO: When wrapping is implement, this will have a different outcome than the real implementation
-			offset = 0.5
-		elseif crossFlex == Enum.UIFlexAlignment.SpaceBetween.Name then
-			-- TODO: When wrapping is implement, this will have a different outcome than the real implementation
-			offset = 0
+
+			maxWidth = math.max(maxWidth, object.AbsoluteSize.X)
 		end
 
-		position += UDim2.fromOffset((totalSpace.X - size.X) * offset, 0)
-
-		if stretch then
-			object.Size = UDim2.new(UDim.new(1, 0), object.Size.Y)
-		end
-
-		object.Position = position
-		currentPosition += size.Y + paddingPerChild
+		currentX += maxWidth + rowPadding
 	end
 
 	-- Flip XY again to restore actual values
 
 	if not isVertical then
 		flex, crossFlex = crossFlex, flex
+		verticalAlignment, horizontalAlignment = verticalAlignment, horizontalAlignment
 
 		totalSpace = Vector2.new(totalSpace.Y, totalSpace.X)
-		totalPadding = Vector2.new(totalPadding.Y, totalPadding.X)
-		totalChildrenSpace = Vector2.new(totalChildrenSpace.Y, totalChildrenSpace.X)
+		fixedPadding = Vector2.new(fixedPadding.Y, fixedPadding.X)
 
 		for _, object in guiObjects do
 			object.Position = UDim2.new(object.Position.Y, object.Position.X)
