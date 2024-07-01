@@ -1,3 +1,7 @@
+--[[
+	Copyright (C) 2024 Arleycht
+--]]
+
 --!strict
 
 local ATTR_BASIS_SIZE = "FlexBasisSize"
