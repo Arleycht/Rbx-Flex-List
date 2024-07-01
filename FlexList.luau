@@ -540,11 +540,11 @@ local function update()
 	-- Flip XY again to restore actual values
 
 	if not isVertical then
-		flex, crossFlex = crossFlex, flex
-		verticalAlignment, horizontalAlignment = verticalAlignment, horizontalAlignment
+		--flex, crossFlex = crossFlex, flex
+		--verticalAlignment, horizontalAlignment = verticalAlignment, horizontalAlignment
 
-		totalSpace = Vector2.new(totalSpace.Y, totalSpace.X)
-		fixedPadding = Vector2.new(fixedPadding.Y, fixedPadding.X)
+		--totalSpace = Vector2.new(totalSpace.Y, totalSpace.X)
+		--fixedPadding = Vector2.new(fixedPadding.Y, fixedPadding.X)
 
 		for _, object in guiObjects do
 			object.Position = UDim2.new(object.Position.Y, object.Position.X)
