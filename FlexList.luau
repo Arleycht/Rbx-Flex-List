@@ -335,12 +335,14 @@ local function update()
 	local fixedPadding = Vector2.new()
 
 	local guiObjects = {}
+	local guiObjectSizes = {}
 	local flexConfigs = {}
 
 	for _, object in parent:GetChildren() do
 		if object:IsA("GuiObject") then
 			object.Size = getBasisSize(object)
 			flexConfigs[object] = getFlexConfiguration(object)
+			guiObjectSizes[object] = object.AbsoluteSize
 			table.insert(guiObjects, object)
 		elseif object:IsA("UIPadding") then
 			fixedPadding += udim2ToAbsolute(
@@ -362,6 +364,10 @@ local function update()
 		for _, object in guiObjects do
 			object.Position = UDim2.new(object.Position.Y, object.Position.X)
 			object.Size = UDim2.new(object.Size.Y, object.Size.X)
+			-- Instead of using absolute sizes directly, this table
+			-- is used to cache the true absolute size when the XY
+			-- values are flipped
+			guiObjectSizes[object] = Vector2.new(guiObjectSizes[object].Y, guiObjectSizes[object].X)
 		end
 	end
 
@@ -393,7 +399,7 @@ local function update()
 
 		for i = 1, #guiObjects do
 			local object = guiObjects[i]
-			local size = object.AbsoluteSize
+			local size = guiObjectSizes[object]
 
 			if listConfig.Wraps and currentY + size.Y > availableSpace.Y and #flexRow > 0 then
 				table.insert(flexRows, flexRow)
@@ -448,7 +454,6 @@ local function update()
 		if crossFlex == Enum.UIFlexMode.Fill.Name then
 			listConfig.ItemLineAlignment = Enum.ItemLineAlignment.Stretch.Name
 		elseif flex ~= Enum.UIFlexAlignment.None.Name then
-			print("Automatic line alignment")
 			useCrossAlignment = true
 		end
 	end
@@ -468,6 +473,7 @@ local function update()
 			for i, flexRow in flexRows do
 				for _, object in flexRow do
 					object.Size = UDim2.new(UDim.new(0, newSizes[i]), object.Size.Y)
+					guiObjectSizes[object] = Vector2.new(newSizes[i], guiObjectSizes[object].Y)
 				end
 			end
 		else
@@ -502,7 +508,7 @@ local function update()
 			local totalRatios = Vector2.zero
 
 			for j, object in flexRow do
-				sizes[j] = object.AbsoluteSize.Y
+				sizes[j] = guiObjectSizes[object].Y
 				ratios[j] = Vector2.new(flexConfigs[object].GrowRatio, flexConfigs[object].ShrinkRatio)
 
 				totalRatios += ratios[j]
@@ -512,6 +518,7 @@ local function update()
 
 			for j, object in flexRow do
 				object.Size = UDim2.new(object.Size.X, UDim.new(0, newSizes[j]))
+				guiObjectSizes[object] = Vector2.new(guiObjectSizes[object].X, newSizes[j])
 			end
 		end
 	end
@@ -523,7 +530,7 @@ local function update()
 		local emptyColumnSpace = availableSpace.Y
 
 		for _, object in flexRow do
-			emptyColumnSpace -= object.AbsoluteSize.Y
+			emptyColumnSpace -= guiObjectSizes[object].Y
 		end
 
 		if flex == Enum.UIFlexAlignment.SpaceAround.Name then
@@ -546,11 +553,11 @@ local function update()
 
 		for _, object in flexRow do
 			object.Position = UDim2.fromOffset(currentX, currentY)
-			currentY += object.AbsoluteSize.Y + columnPadding
+			currentY += guiObjectSizes[object].Y + columnPadding
 
 			if useCrossAlignment and horizontalAlignment ~= "Start" then
 				local width = flexRowWidths[i]
-				local objectWidth = object.AbsoluteSize.X
+				local objectWidth = guiObjectSizes[object].X
 				local offset = width - objectWidth
 
 				if horizontalAlignment == "Center" then
@@ -560,7 +567,7 @@ local function update()
 				object.Position += UDim2.fromOffset(offset, 0)
 			end
 
-			maxWidth = math.max(maxWidth, object.AbsoluteSize.X)
+			maxWidth = math.max(maxWidth, guiObjectSizes[object].X)
 		end
 
 		currentX += maxWidth + rowPadding
@@ -578,6 +585,10 @@ local function update()
 		for _, object in guiObjects do
 			object.Position = UDim2.new(object.Position.Y, object.Position.X)
 			object.Size = UDim2.new(object.Size.Y, object.Size.X)
+			-- Instead of using absolute sizes directly, this table
+			-- is used to cache the true absolute size when the XY
+			-- values are flipped
+			--guiObjectSizes[object] = Vector2.new(guiObjectSizes[object].Y, guiObjectSizes[object].X)
 		end
 	end
 
@@ -585,8 +596,6 @@ local function update()
 		game:GetService("RunService"):UnbindFromRenderStep(renderUpdateConnectionId)
 		renderUpdateConnectionId = nil
 	end
-
-	print("Updated")
 end
 
 local function onChanged()
