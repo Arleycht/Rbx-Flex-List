@@ -234,9 +234,9 @@ local function getFlexConfiguration(object: GuiObject)
 
 	local config = {
 		FlexMode = Enum.UIFlexMode.None.Name,
-		GrowRatio = 0,
+		GrowRatio = 1,
 		ItemLineAlignment = Enum.ItemLineAlignment.Automatic.Name,
-		ShrinkRatio = 0,
+		ShrinkRatio = 1,
 	}
 
 	return config
@@ -634,7 +634,7 @@ local function update()
 		end
 	end
 
-	if renderUpdateConnectionId and time() - lastChanged > 1 then
+	if renderUpdateConnectionId and time() - lastChanged > 0.5 then
 		game:GetService("RunService"):UnbindFromRenderStep(renderUpdateConnectionId)
 		renderUpdateConnectionId = nil
 	end
@@ -642,7 +642,7 @@ end
 
 local function onChanged()
 	if not renderUpdateConnectionId then
-		if time() - lastChanged < 1 then
+		if time() - lastChanged < 0.5 then
 			renderUpdateConnectionId = game:GetService("HttpService"):GenerateGUID()
 			game:GetService("RunService")
 				:BindToRenderStep(renderUpdateConnectionId, Enum.RenderPriority.Camera.Value - 1, update)
@@ -654,35 +654,45 @@ local function onChanged()
 end
 
 local function init()
+	importListConfiguration()
+
 	local parent = script.Parent
 	local connections = {}
 
-	importListConfiguration()
+	local function onChildAdded(child)
+		if child:IsA("GuiObject") then
+			connections[child] = {
+				child.Changed:Connect(onChanged),
+				child.AttributeChanged:Connect(onChanged),
+			}
+		end
+		onChanged()
+	end
+
+	local function onChildRemoved(child)
+		for otherChild, childConnections in connections do
+			if otherChild == child or not parent:IsAncestorOf(otherChild) then
+				for _, v in childConnections do
+					v:Disconnect()
+				end
+				connections[otherChild] = nil
+			end
+		end
+		onChanged()
+	end
 
 	script.Changed:Connect(onChanged)
 	script.AttributeChanged:Connect(onChanged)
 	parent.Changed:Connect(onChanged)
-	parent.DescendantAdded:Connect(function(descendant)
-		if descendant:IsA("GuiObject") then
-			connections[descendant] = descendant:GetPropertyChangedSignal("AbsoluteSize"):Connect(onChanged)
-		end
-		onChanged()
-	end)
-	parent.DescendantRemoving:Connect(function(descendant)
-		if connections[descendant] then
-			connections[descendant]:Disconnect()
-			connections[descendant] = nil
-		end
+	parent.AttributeChanged:Connect(onChanged)
+	parent.ChildAdded:Connect(onChildAdded)
+	parent.ChildRemoved:Connect(onChildRemoved)
 
-		for i, v in connections do
-			if not parent:IsAncestorOf(i) then
-				v:Disconnect()
-				connections[i] = nil
-			end
+	for _, child in parent:GetChildren() do
+		if child:IsA("GuiObject") then
+			onChildAdded(child)
 		end
-
-		onChanged()
-	end)
+	end
 end
 
 init()
