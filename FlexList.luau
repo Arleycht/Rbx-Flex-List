@@ -523,6 +523,39 @@ local function update()
 		end
 	end
 
+	-- Apply aspect ratio constraints
+
+	for _, object in guiObjects do
+		local constraint = object:FindFirstChildWhichIsA("UIAspectRatioConstraint")
+
+		if constraint then
+			local parentSize = availableSpace
+			local size = guiObjectSizes[object]
+
+			if not isVertical then
+				parentSize = Vector2.new(parentSize.Y, parentSize.X)
+				size = Vector2.new(size.Y, size.X)
+			end
+
+			if constraint.DominantAxis == Enum.DominantAxis.Width then
+				size = Vector2.new(size.X, size.X / constraint.AspectRatio)
+			else
+				size = Vector2.new(size.Y * constraint.AspectRatio, 0)
+			end
+
+			if constraint.AspectType == Enum.AspectType.ScaleWithParentSize then
+				local ratio = parentSize / size
+				size *= math.min(ratio.X, ratio.Y)
+			end
+
+			if not isVertical then
+				guiObjectSizes[object] = Vector2.new(size.Y, size.X)
+			else
+				guiObjectSizes[object] = size
+			end
+		end
+	end
+
 	for i, flexRow in flexRows do
 		local maxWidth = 0
 		local currentY = 0
