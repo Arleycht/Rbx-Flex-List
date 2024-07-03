@@ -335,6 +335,10 @@ local function update()
 	local fixedPadding = Vector2.new()
 
 	local guiObjects = {}
+	-- Because absolute sizes will differ on XY axes when using
+	-- relative scale values in UDim2, we cache the true absolute
+	-- sizes so that when they are temporarily flipped, we still
+	-- use the correct values that will be rendered.
 	local guiObjectSizes = {}
 	local flexConfigs = {}
 
@@ -364,24 +368,19 @@ local function update()
 		for _, object in guiObjects do
 			object.Position = UDim2.new(object.Position.Y, object.Position.X)
 			object.Size = UDim2.new(object.Size.Y, object.Size.X)
-			-- Instead of using absolute sizes directly, this table
-			-- is used to cache the true absolute size when the XY
-			-- values are flipped
 			guiObjectSizes[object] = Vector2.new(guiObjectSizes[object].Y, guiObjectSizes[object].X)
 		end
 	end
 
 	-- Apply list sort order
 
-	local sortComparator = function(a: GuiObject, b: GuiObject)
+	guiObjects = mergeSort(guiObjects, function(a: GuiObject, b: GuiObject)
 		if listConfig.SortOrder == Enum.SortOrder.Name.Name then
 			return a.Name < b.Name
 		else
 			return a.LayoutOrder < b.LayoutOrder
 		end
-	end
-
-	guiObjects = mergeSort(guiObjects, sortComparator)
+	end)
 
 	-- Flex
 
@@ -460,13 +459,13 @@ local function update()
 
 	if crossFlex == Enum.UIFlexMode.Fill.Name then
 		if listConfig.ItemLineAlignment == Enum.ItemLineAlignment.Stretch.Name then
-			local sizes = flexRowWidths
 			local ratios = {}
 
 			for i, flexRow in flexRows do
 				ratios[i] = Vector2.one
 			end
 
+			local sizes = flexRowWidths
 			local target = availableSpace.X - (rowPadding * (#sizes - 1))
 			local newSizes = calculateFlex(sizes, ratios, target)
 
@@ -484,6 +483,7 @@ local function update()
 	end
 
 	-- Use cross alignment when flex is disabled
+
 	if useCrossAlignment then
 		if horizontalAlignment ~= "Start" then
 			currentX = availableSpace.X
@@ -576,11 +576,10 @@ local function update()
 			currentY = columnPadding
 		elseif flex == Enum.UIFlexAlignment.None.Name then
 			emptyColumnSpace -= columnPadding * (#flexRow - 1)
+			currentY = emptyColumnSpace
 
 			if verticalAlignment == "Center" then
-				currentY = emptyColumnSpace / 2
-			elseif verticalAlignment == "End" then
-				currentY = emptyColumnSpace
+				currentY /= 2
 			end
 		end
 
@@ -609,19 +608,9 @@ local function update()
 	-- Flip XY again to restore actual values
 
 	if not isVertical then
-		--flex, crossFlex = crossFlex, flex
-		--verticalAlignment, horizontalAlignment = horizontalAlignment, verticalAlignment
-
-		--totalSpace = Vector2.new(totalSpace.Y, totalSpace.X)
-		--fixedPadding = Vector2.new(fixedPadding.Y, fixedPadding.X)
-
 		for _, object in guiObjects do
 			object.Position = UDim2.new(object.Position.Y, object.Position.X)
 			object.Size = UDim2.new(object.Size.Y, object.Size.X)
-			-- Instead of using absolute sizes directly, this table
-			-- is used to cache the true absolute size when the XY
-			-- values are flipped
-			--guiObjectSizes[object] = Vector2.new(guiObjectSizes[object].Y, guiObjectSizes[object].X)
 		end
 	end
 
