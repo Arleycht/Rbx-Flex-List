@@ -600,6 +600,8 @@ local function update()
 
 			if verticalAlignment == "Center" then
 				currentY /= 2
+			elseif verticalAlignment == "Start" then
+				currentY = 0
 			end
 		end
 
