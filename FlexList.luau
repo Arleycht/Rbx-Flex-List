@@ -363,7 +363,7 @@ local function update()
 	local flexConfigs = {}
 
 	for _, object in parent:GetChildren() do
-		if object:IsA("GuiObject") then
+		if object:IsA("GuiObject") and object.Visible then
 			object.Size = getBasisSize(object)
 			flexConfigs[object] = getFlexConfiguration(object)
 			guiObjectSizes[object] = object.AbsoluteSize
