@@ -643,6 +643,18 @@ local function update()
 end
 
 local function onChanged()
+	do
+		local p = script.Parent
+
+		while p:IsA("GuiObject") do
+			if not p.Visible then
+				return
+			end
+
+			p = p.Parent
+		end
+	end
+
 	if not renderUpdateConnectionId then
 		if time() - lastChanged < 0.5 then
 			renderUpdateConnectionId = game:GetService("HttpService"):GenerateGUID()
@@ -652,6 +664,7 @@ local function onChanged()
 			update()
 		end
 	end
+
 	lastChanged = time()
 end
 
