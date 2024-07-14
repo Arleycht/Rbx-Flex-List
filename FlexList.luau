@@ -672,36 +672,55 @@ local function init()
 	importListConfiguration()
 
 	local parent = script.Parent
-	local connections = {} :: { [Instance]: { RBXScriptConnection } }
+	local cache = {}
+	local connections = {} :: { [Instance]: RBXScriptConnection }
 
-	local function onChildAdded(child)
+	local function onChildAdded(child: Instance)
 		if child:IsA("GuiObject") then
-			connections[child] = {
-				child.Changed:Connect(onChanged),
-				child.AttributeChanged:Connect(onChanged),
+			cache[child] = {
+				AbsoluteSize = child.AbsoluteSize,
+				AbsolutePosition = child.AbsolutePosition,
+				Size = child.Size,
+				Position = child.Position,
 			}
+			connections[child] = child.Changed:Connect(function(propertyName: string)
+				if
+					propertyName == "AbsoluteSize"
+					or propertyName == "AbsolutePosition"
+					or propertyName == "Size"
+					or propertyName == "Position"
+				then
+					if cache[child][propertyName] ~= (child :: any)[propertyName] then
+						cache[child][propertyName] = (child :: any)[propertyName]
+
+						if not parent:IsA("ScrollingFrame") or propertyName ~= "AbsolutePosition" then
+							-- Skip update when scrolling
+							onChanged()
+						end
+					end
+				end
+			end)
+			onChanged()
 		end
-		onChanged()
 	end
 
-	local function onChildRemoved(child)
-		for otherChild, childConnections in connections do
-			if otherChild == child or not parent:IsAncestorOf(otherChild) then
-				for _, v in childConnections do
+	local function onChildRemoved(child: Instance)
+		if child:IsA("GuiObject") then
+			for i, v in connections do
+				if i == child or not parent:IsAncestorOf(i) then
 					v:Disconnect()
+					connections[i] = nil
 				end
-				connections[otherChild] = nil
 			end
+			cache[child] = nil
+			onChanged()
 		end
-		onChanged()
 	end
 
 	script.Changed:Connect(function(property)
 		if property == "Enabled" and not script.Enabled then
 			for i, v in connections do
-				for _, connection in v do
-					connection:Disconnect()
-				end
+				v:Disconnect()
 			end
 
 			if renderUpdateConnectionId then
@@ -712,8 +731,16 @@ local function init()
 		end
 	end)
 	script.AttributeChanged:Connect(onChanged)
-	parent.Changed:Connect(onChanged)
-	parent.AttributeChanged:Connect(onChanged)
+	parent.Changed:Connect(function(propertyName: string)
+		if
+			propertyName == "AbsoluteSize"
+			or propertyName == "AbsolutePosition"
+			or propertyName == "Size"
+			or propertyName == "Position"
+		then
+			onChanged()
+		end
+	end)
 	parent.ChildAdded:Connect(onChildAdded)
 	parent.ChildRemoved:Connect(onChildRemoved)
 
