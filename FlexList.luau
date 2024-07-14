@@ -659,7 +659,7 @@ local function init()
 	importListConfiguration()
 
 	local parent = script.Parent
-	local connections = {}
+	local connections = {} :: { [Instance]: { RBXScriptConnection } }
 
 	local function onChildAdded(child)
 		if child:IsA("GuiObject") then
@@ -683,7 +683,21 @@ local function init()
 		onChanged()
 	end
 
-	script.Changed:Connect(onChanged)
+	script.Changed:Connect(function(property)
+		if property == "Enabled" and not script.Enabled then
+			for i, v in connections do
+				for _, connection in v do
+					connection:Disconnect()
+				end
+			end
+
+			if renderUpdateConnectionId then
+				game:GetService("RunService"):UnbindFromRenderStep(renderUpdateConnectionId)
+			end
+		else
+			onChanged()
+		end
+	end)
 	script.AttributeChanged:Connect(onChanged)
 	parent.Changed:Connect(onChanged)
 	parent.AttributeChanged:Connect(onChanged)
