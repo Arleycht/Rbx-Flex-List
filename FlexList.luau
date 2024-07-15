@@ -689,6 +689,7 @@ local function init()
 					or propertyName == "AbsolutePosition"
 					or propertyName == "Size"
 					or propertyName == "Position"
+					or propertyName == "Visible"
 				then
 					if cache[child][propertyName] ~= (child :: any)[propertyName] then
 						cache[child][propertyName] = (child :: any)[propertyName]
@@ -737,6 +738,7 @@ local function init()
 			or propertyName == "AbsolutePosition"
 			or propertyName == "Size"
 			or propertyName == "Position"
+			or propertyName == "Visible"
 		then
 			onChanged()
 		end
