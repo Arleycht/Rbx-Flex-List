@@ -671,19 +671,20 @@ end
 local function init()
 	importListConfiguration()
 
-	local parent = script.Parent
 	local cache = {}
-	local connections = {} :: { [Instance]: RBXScriptConnection }
+	local childConnections = {} :: { [Instance]: RBXScriptConnection }
+	local ancestorConnections = {} :: { [Instance]: RBXScriptConnection }
+	local parentConnections = {} :: { RBXScriptConnection }
 
 	local function onChildAdded(child: Instance)
-		if child:IsA("GuiObject") then
+		if script.Parent and child:IsA("GuiObject") then
 			cache[child] = {
 				AbsoluteSize = child.AbsoluteSize,
 				AbsolutePosition = child.AbsolutePosition,
 				Size = child.Size,
 				Position = child.Position,
 			}
-			connections[child] = child.Changed:Connect(function(propertyName: string)
+			childConnections[child] = child.Changed:Connect(function(propertyName: string)
 				if
 					propertyName == "AbsoluteSize"
 					or propertyName == "AbsolutePosition"
@@ -694,7 +695,7 @@ local function init()
 					if cache[child][propertyName] ~= (child :: any)[propertyName] then
 						cache[child][propertyName] = (child :: any)[propertyName]
 
-						if not parent:IsA("ScrollingFrame") or propertyName ~= "AbsolutePosition" then
+						if not script.Parent:IsA("ScrollingFrame") or propertyName ~= "AbsolutePosition" then
 							-- Skip update when scrolling
 							onChanged()
 						end
@@ -706,11 +707,11 @@ local function init()
 	end
 
 	local function onChildRemoved(child: Instance)
-		if child:IsA("GuiObject") then
-			for i, v in connections do
-				if i == child or not parent:IsAncestorOf(i) then
+		if script.Parent and child:IsA("GuiObject") then
+			for i, v in childConnections do
+				if i == child or not script.Parent:IsAncestorOf(i) then
 					v:Disconnect()
-					connections[i] = nil
+					childConnections[i] = nil
 				end
 			end
 			cache[child] = nil
@@ -718,9 +719,72 @@ local function init()
 		end
 	end
 
-	script.Changed:Connect(function(property)
-		if property == "Enabled" and not script.Enabled then
-			for i, v in connections do
+	local function onAncestryChanged()
+		-- Disconnect all connections
+
+		for i, v in childConnections do
+			v:Disconnect()
+			childConnections[i] = nil
+		end
+
+		for i, v in ancestorConnections do
+			if not i:IsAncestorOf(script) then
+				v:Disconnect()
+				ancestorConnections[i] = nil
+			end
+		end
+
+		for _, v in parentConnections do
+			v:Disconnect()
+		end
+
+		-- Connect parent events
+
+		local parent = script.Parent
+
+		do
+			local a = parent.Changed:Connect(function(propertyName: string)
+				if
+					propertyName == "AbsoluteSize"
+					or propertyName == "AbsolutePosition"
+					or propertyName == "Size"
+					or propertyName == "Position"
+				then
+					onChanged()
+				end
+			end)
+			local b = parent.ChildAdded:Connect(onChildAdded)
+			local c = parent.ChildRemoved:Connect(onChildRemoved)
+
+			parentConnections = { a, b, c }
+		end
+
+		-- Connect child events
+
+		for _, child in parent:GetChildren() do
+			onChildAdded(child)
+		end
+
+		-- Connect ancestory events
+
+		while parent and parent:IsA("GuiObject") do
+			ancestorConnections[parent] = parent.Changed:Connect(function(propertyName)
+				if propertyName == "Visible" then
+					onChanged()
+				end
+			end)
+
+			parent = parent.Parent
+		end
+
+		-- Update flex list
+
+		onChanged()
+	end
+
+	script.Changed:Connect(function(propertyName: string)
+		if propertyName == "Enabled" and not script.Enabled then
+			for i, v in childConnections do
 				v:Disconnect()
 			end
 
@@ -732,25 +796,9 @@ local function init()
 		end
 	end)
 	script.AttributeChanged:Connect(onChanged)
-	parent.Changed:Connect(function(propertyName: string)
-		if
-			propertyName == "AbsoluteSize"
-			or propertyName == "AbsolutePosition"
-			or propertyName == "Size"
-			or propertyName == "Position"
-			or propertyName == "Visible"
-		then
-			onChanged()
-		end
-	end)
-	parent.ChildAdded:Connect(onChildAdded)
-	parent.ChildRemoved:Connect(onChildRemoved)
+	script.AncestryChanged:Connect(onAncestryChanged)
 
-	for _, child in parent:GetChildren() do
-		if child:IsA("GuiObject") then
-			onChildAdded(child)
-		end
-	end
+	onAncestryChanged()
 end
 
 init()
